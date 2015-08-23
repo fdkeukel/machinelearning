@@ -1,0 +1,132 @@
+---
+title: "Machine Learning - Course Project"
+author: "Frederik De Keukelaere"
+date: "August 23, 2015"
+output: html_document
+---
+
+#Background
+
+*As specified in the course project description:*
+
+"Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset)."
+
+#Libraries and seeds
+
+```{r}
+# fix the seed for computation
+set.seed(123456)
+# allow for parallel computation of the cross validation trees.
+library(doParallel)
+registerDoParallel(cores=4)
+
+#load required libraries
+library(caret)
+
+```
+
+
+#Data Sets
+
+*As specified in the course project description:*
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+
+#Loading Data
+
+In the code we make the assumption you've downloaded the files to your project directory. We also convert the NA, #DIV/0, blank strings to be NA values.
+
+```{r}
+training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+```
+
+#Cleaning Data
+
+Removing the id from the data set so that it isn't used as a predictor in the ML algorithms.
+
+```{r}
+training <- training[c(-1)]
+testing <- testing[c(-1)]
+```
+
+Using the caret pre-processing function *nearZeroVar* we're going to remove the NearZeroVariance variables as they will not help us much with building a predictive model and will slow down the model building.
+
+```{r}
+nzv <- nearZeroVar(training)
+filteredTraining <- training[, -nzv]
+filteredTesting <-testing[,-nzv]
+```
+
+Remove all the variables which have more than 70% NA values. I.e., more than 13735 NAs.
+
+```{r}
+NA70<-colSums(is.na(filteredTraining))<13735
+filteredTraining <- filteredTraining[ , NA70]
+filteredTesting <- filteredTesting[ , NA70]
+
+```
+
+#Spliting in Test and Train for model building
+
+To build the model and be able to do the in/out of sample error calculations we split the training set up into a training and testing set.
+
+```{r}
+
+inTrain <- createDataPartition(y=filteredTraining$classe, p=0.6, list=FALSE)
+training_train <- filteredTraining[ inTrain,]
+training_test <- filteredTraining[-inTrain,]
+
+```
+
+#Model Building
+
+To build a model for prediciton I used a random forest with its default configuration in the caret package. 10-fold cross validation was used to ensure model stability.
+
+```{r}
+
+model <- train(classe ~ ., method="rf", trControl=trainControl(method = "cv"), data=training_train)
+
+predictions <- predict(model, newdata = training_train)
+confusionMatrix(predictions, training_train$classe)
+
+```
+
+#In sample and out of sample error rate
+
+The in sample error is error rate when the model is used to predict the training set it is based off. This error is going to be less than the error of predicting another dataset (out of sample error). For the model built using the random forest in this project the in sample error rate is 0 because the model predicted 100% accurately the classes.
+
+The out of sample error rate can be calculated by testing the model on a new set of data. In this case the error rate is very low as the accuracy of the random forest is 99% on the test data.
+
+```{r}
+
+predictions_out <- predict(model, newdata = training_test)
+confusionMatrix(predictions_out, training_test$classe)
+
+```
+
+#Generating Files
+
+As a final step we predict the values for submission and create the submission files.
+
+```{r}
+
+predictions_final <- predict(model, filteredTesting)
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(predictions_final)
+
+```
